@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $_SESSION['user'] = $found['nama'];
         if ($remember) {
-            setcookie('remember_identifier', $identifier, time() + (86400 * 30), "/");
+setcookie('remember_identifier', $identifier, time() + (86400 * 30), "/");
         }
         header('Location: /'); // arahkan ke beranda setelah berhasil login
         exit;
