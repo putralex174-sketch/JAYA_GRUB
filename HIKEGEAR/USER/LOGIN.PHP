@@ -1,5 +1,8 @@
 <?php
 session_start();
+require_once __DIR__.'/db.php';
+require_once __DIR__.'/helpers.php';
+require_once __DIR__.'/model_user.php';
 
 $error = '';
 $success = '';
@@ -10,29 +13,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password   = $_POST['password'] ?? '';
     $remember   = isset($_POST['remember']);
 
-    // Dummy user database (gantilah dengan query ke database sungguhan)
-    $dummy_users = [
-        ['email'=>'budi@gmail.com', 'hp'=>'081234567890', 'password'=>'password123', 'nama'=>'Budi Santoso'],
-    ];
-
-    $found = null;
-    foreach ($dummy_users as $u) {
-        if ($identifier === $u['email'] || $identifier === $u['hp']) { $found = $u; break; }
-    }
-
     if (!$identifier || !$password) {
         $error = 'Email/No. HP dan password wajib diisi.';
-    } elseif (!$found) {
-        $error = 'Akun tidak ditemukan. Periksa kembali email atau nomor HP Anda.';
-    } elseif ($found['password'] !== $password) {
-        $error = 'Password yang Anda masukkan salah.';
     } else {
-        $_SESSION['user'] = $found['nama'];
-        if ($remember) {
-setcookie('remember_identifier', $identifier, time() + (86400 * 30), "/");
+        $hasil = login_user($pdo, $identifier, $password);
+        if (!$hasil['ok']) {
+            $error = $hasil['msg'];
+        } else {
+            if ($remember) {
+                setcookie('remember_identifier', $identifier, time() + (86400 * 30), "/");
+            }
+            // Redirect ke halaman yang diminta (mis. checkout.php), atau ke beranda
+            $redirect_to = $_GET['redirect'] ?? ($_POST['redirect'] ?? 'index.php');
+            redirect($redirect_to);
         }
-        header('Location: /'); // arahkan ke beranda setelah berhasil login
-        exit;
     }
 }
 
@@ -174,7 +168,7 @@ header{background:white;padding:16px 40px;display:flex;align-items:center;gap:30
 
 <!-- Header -->
 <header>
-  <a href="USER/BRANDA.PHP" class="logo">
+  <a href="/" class="logo">
     <div class="logo-icon"><svg viewBox="0 0 24 24"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="14 7 21 7 21 14"/></svg></div>
     <div class="logo-text"><strong>HIKEGEAR</strong><small>Adventure Starts Here</small></div>
   </a>
@@ -189,7 +183,7 @@ header{background:white;padding:16px 40px;display:flex;align-items:center;gap:30
   <div class="header-actions">
     <a class="haction" href="#"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></a>
     <a class="haction" href="#"><svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg><span>Wishlist</span></a>
-    <a class="haction" href="LOGIN.PHP"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Masuk / Daftar</span></a>
+    <a class="haction" href="login.php"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Masuk / Daftar</span></a>
     <a class="haction" href="#" style="position:relative"><svg viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg><span>Keranjang</span><span class="cart-badge">3</span></a>
   </div>
 </header>
@@ -246,6 +240,7 @@ header{background:white;padding:16px 40px;display:flex;align-items:center;gap:30
       <?php endif; ?>
 
       <form method="POST" action="" id="loginForm">
+        <input type="hidden" name="redirect" value="<?= htmlspecialchars($_GET['redirect'] ?? 'index.php') ?>">
         <div class="form-group">
           <label>Email atau Nomor HP</label>
           <div class="input-wrap">
