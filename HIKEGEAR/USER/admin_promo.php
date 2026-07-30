@@ -4,58 +4,61 @@ require_once __DIR__.'/db.php';
 require_once __DIR__.'/helpers.php';
 require_once __DIR__.'/auth_guard.php';
 require_once __DIR__.'/admin_guard.php';
-require_once __DIR__.'/admin_actifity.php';
+require_once __DIR__.'/admin_activity.php';
 
 $flash = '';
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['hapus'])) {
     $id = (int)$_POST['id'];
-    $pdo->prepare("DELETE FROM banner WHERE id=?")->execute([$id]);
-    catat_log($pdo, (int)$_SESSION['user_id'], 'Hapus banner', "ID: $id");
-    $flash = 'Banner berhasil dihapus.';
+    $pdo->prepare("DELETE FROM voucher WHERE id=?")->execute([$id]);
+    catat_log($pdo, (int)$_SESSION['user_id'], 'Hapus voucher', "ID: $id");
+    $flash = 'Voucher berhasil dihapus.';
 }
 
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['simpan'])) {
     $id = (int)($_POST['id'] ?? 0);
-    $judul = trim($_POST['judul'] ?? '');
-    $gambar = trim($_POST['gambar'] ?? '');
-    $link_tujuan = trim($_POST['link_tujuan'] ?? '') ?: null;
-    $urutan = (int)($_POST['urutan'] ?? 0);
+    $kode = strtoupper(trim($_POST['kode'] ?? ''));
+    $tipe = $_POST['tipe'] ?? 'persen';
+    $nilai = (float)($_POST['nilai'] ?? 0);
+    $min_belanja = (float)($_POST['min_belanja'] ?? 0);
+    $maks_diskon = $_POST['maks_diskon'] !== '' ? (float)$_POST['maks_diskon'] : null;
+    $kuota = $_POST['kuota'] !== '' ? (int)$_POST['kuota'] : null;
+    $berlaku_sampai = $_POST['berlaku_sampai'] ?: null;
     $is_active = isset($_POST['is_active']) ? 1 : 0;
 
-    if (!$judul) $errors[] = 'Judul banner wajib diisi.';
-    if (!$gambar) $errors[] = 'URL gambar wajib diisi.';
+    if (!$kode) $errors[] = 'Kode voucher wajib diisi.';
+    if ($nilai <= 0) $errors[] = 'Nilai diskon harus lebih dari 0.';
 
     if (empty($errors)) {
         if ($id) {
-            $pdo->prepare("UPDATE banner SET judul=?, gambar=?, link_tujuan=?, urutan=?, is_active=? WHERE id=?")
-                ->execute([$judul, $gambar, $link_tujuan, $urutan, $is_active, $id]);
-            $flash = 'Banner berhasil diperbarui.';
+            $pdo->prepare("UPDATE voucher SET kode=?, tipe=?, nilai=?, min_belanja=?, maks_diskon=?, kuota=?, berlaku_sampai=?, is_active=? WHERE id=?")
+                ->execute([$kode, $tipe, $nilai, $min_belanja, $maks_diskon, $kuota, $berlaku_sampai, $is_active, $id]);
+            $flash = 'Voucher berhasil diperbarui.';
         } else {
-            $pdo->prepare("INSERT INTO banner (judul, gambar, link_tujuan, urutan, is_active) VALUES (?,?,?,?,?)")
-                ->execute([$judul, $gambar, $link_tujuan, $urutan, $is_active]);
-            $flash = 'Banner baru berhasil ditambahkan.';
+            $pdo->prepare("INSERT INTO voucher (kode, tipe, nilai, min_belanja, maks_diskon, kuota, berlaku_sampai, is_active) VALUES (?,?,?,?,?,?,?,?)")
+                ->execute([$kode, $tipe, $nilai, $min_belanja, $maks_diskon, $kuota, $berlaku_sampai, $is_active]);
+            $flash = 'Voucher baru berhasil ditambahkan.';
         }
-        catat_log($pdo, (int)$_SESSION['user_id'], 'Simpan banner', $judul);
+        catat_log($pdo, (int)$_SESSION['user_id'], 'Simpan voucher', $kode);
     }
 }
 
 $edit = null;
 if (isset($_GET['edit'])) {
-    $stmt = $pdo->prepare("SELECT * FROM banner WHERE id=?");
+    $stmt = $pdo->prepare("SELECT * FROM voucher WHERE id=?");
     $stmt->execute([(int)$_GET['edit']]);
     $edit = $stmt->fetch();
 }
 
-$daftar = $pdo->query("SELECT * FROM banner ORDER BY urutan, id DESC")->fetchAll();
+$daftar = $pdo->query("SELECT * FROM voucher ORDER BY created_at DESC")->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kelola Banner - HikeGear Admin</title>
+<title>Kelola Promo - HikeGear Admin</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -117,9 +120,9 @@ tr:last-child td{border-bottom:none}
 .card{background:white;border-radius:var(--radius);box-shadow:0 1px 3px rgba(0,0,0,.06);padding:18px}
 .form-group{margin-bottom:12px}
 .form-group label{display:block;font-size:12px;font-weight:700;margin-bottom:5px}
-.form-group input{width:100%;padding:9px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit}
+.form-group input,.form-group select{width:100%;padding:9px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit}
 .chk-row{display:flex;align-items:center;gap:8px;margin-bottom:14px}
-.b-thumb{width:80px;height:44px;border-radius:6px;object-fit:cover;background:var(--gray-100)}
+.kode-badge{font-family:monospace;font-weight:800;background:var(--gray-100);padding:3px 8px;border-radius:5px}
 </style>
 </head>
 <body>
@@ -136,8 +139,8 @@ tr:last-child td{border-bottom:none}
     <a href="admin_pengaturan.php" class="nav-link"><span class="ic">⚙️</span>Pengaturan</a>
     <div class="menu-label">Lainnya</div>
     <a href="admin_ulasan.php" class="nav-link"><span class="ic">⭐</span>Ulasan</a>
-    <a href="admin_promo.php" class="nav-link"><span class="ic">🏷️</span>Promo</a>
-    <a href="admin_banner.php" class="nav-link active"><span class="ic">🖼️</span>Banner</a>
+    <a href="admin_promo.php" class="nav-link active"><span class="ic">🏷️</span>Promo</a>
+    <a href="admin_banner.php" class="nav-link"><span class="ic">🖼️</span>Banner</a>
     <a href="admin_pengguna.php" class="nav-link"><span class="ic">👤</span>Pengguna</a>
     <a href="admin_log.php" class="nav-link"><span class="ic">📜</span>Log Aktivitas</a>
     <div style="margin-top:auto"></div>
@@ -148,42 +151,54 @@ tr:last-child td{border-bottom:none}
     <div class="topbar">
       <div class="who"><strong><?= htmlspecialchars($_SESSION['nama']) ?></strong><span>Super Admin</span></div>
       <div class="avatar"><?= strtoupper(substr($_SESSION['nama'],0,1)) ?></div>
+    </div>
 
     <div class="content">
-      <h1>🖼️ Kelola Banner</h1>
+      <h1>🏷️ Kelola Promo / Voucher</h1>
       <?php if ($flash): ?><div class="flash"><?= htmlspecialchars($flash) ?></div><?php endif; ?>
       <?php if ($errors): ?><div class="error-box"><?php foreach($errors as $e): ?><div><?= htmlspecialchars($e) ?></div><?php endforeach; ?></div><?php endif; ?>
 
       <div class="grid-2">
         <div class="card">
-          <h3 style="margin-bottom:14px;color:var(--green-dark)"><?= $edit ? 'Edit Banner' : 'Tambah Banner' ?></h3>
+          <h3 style="margin-bottom:14px;color:var(--green-dark)"><?= $edit ? 'Edit Voucher' : 'Tambah Voucher' ?></h3>
           <form method="POST">
             <?php if ($edit): ?><input type="hidden" name="id" value="<?= $edit['id'] ?>"><?php endif; ?>
-            <div class="form-group"><label>Judul Banner *</label><input type="text" name="judul" value="<?= htmlspecialchars($edit['judul'] ?? '') ?>" required></div>
-            <div class="form-group"><label>URL Gambar *</label><input type="text" name="gambar" value="<?= htmlspecialchars($edit['gambar'] ?? '') ?>" placeholder="https://..." required></div>
-            <div class="form-group"><label>Link Tujuan (opsional)</label><input type="text" name="link_tujuan" value="<?= htmlspecialchars($edit['link_tujuan'] ?? '') ?>" placeholder="produk.php?kategori=..."></div>
-            <div class="form-group"><label>Urutan</label><input type="number" name="urutan" value="<?= $edit['urutan'] ?? 0 ?>"></div>
-            <div class="chk-row"><input type="checkbox" name="is_active" id="ia" <?= (!isset($edit) || $edit['is_active']) ? 'checked' : '' ?>><label for="ia" style="margin:0">Tampilkan</label></div>
-            <button type="submit" name="simpan" class="btn btn-primary"><?= $edit ? 'Simpan Perubahan' : 'Tambah Banner' ?></button>
-            <?php if ($edit): ?><a href="admin_banner.php" class="btn btn-secondary">Batal</a><?php endif; ?>
+            <div class="form-group"><label>Kode Voucher *</label><input type="text" name="kode" value="<?= htmlspecialchars($edit['kode'] ?? '') ?>" style="text-transform:uppercase" required></div>
+            <div class="form-group"><label>Tipe Diskon</label>
+              <select name="tipe">
+                <option value="persen" <?= (isset($edit) && $edit['tipe']=='persen')?'selected':'' ?>>Persen (%)</option>
+                <option value="nominal" <?= (isset($edit) && $edit['tipe']=='nominal')?'selected':'' ?>>Nominal (Rp)</option>
+                <option value="ongkir" <?= (isset($edit) && $edit['tipe']=='ongkir')?'selected':'' ?>>Gratis Ongkir</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Nilai *</label><input type="number" name="nilai" value="<?= $edit['nilai'] ?? '' ?>" required></div>
+            <div class="form-group"><label>Minimal Belanja (Rp)</label><input type="number" name="min_belanja" value="<?= $edit['min_belanja'] ?? 0 ?>"></div>
+            <div class="form-group"><label>Maksimal Diskon (Rp, opsional)</label><input type="number" name="maks_diskon" value="<?= $edit['maks_diskon'] ?? '' ?>"></div>
+            <div class="form-group"><label>Kuota (opsional)</label><input type="number" name="kuota" value="<?= $edit['kuota'] ?? '' ?>"></div>
+            <div class="form-group"><label>Berlaku Sampai</label><input type="date" name="berlaku_sampai" value="<?= $edit['berlaku_sampai'] ?? '' ?>"></div>
+            <div class="chk-row"><input type="checkbox" name="is_active" id="ia" <?= (!isset($edit) || $edit['is_active']) ? 'checked' : '' ?>><label for="ia" style="margin:0">Aktif</label></div>
+            <button type="submit" name="simpan" class="btn btn-primary"><?= $edit ? 'Simpan Perubahan' : 'Tambah Voucher' ?></button>
+            <?php if ($edit): ?><a href="admin_promo.php" class="btn btn-secondary">Batal</a><?php endif; ?>
           </form>
         </div>
 
         <table>
-          <thead><tr><th>Preview</th><th>Judul</th><th>Urutan</th><th>Status</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Kode</th><th>Tipe</th><th>Nilai</th><th>Terpakai/Kuota</th><th>Berlaku Sampai</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody>
             <?php if (empty($daftar)): ?>
-            <tr><td colspan="5" style="text-align:center;padding:20px;color:var(--gray-600)">Belum ada banner.</td></tr>
-            <?php else: foreach ($daftar as $b): ?>
+            <tr><td colspan="7" style="text-align:center;padding:20px;color:var(--gray-600)">Belum ada voucher.</td></tr>
+            <?php else: foreach ($daftar as $v): ?>
             <tr>
-              <td><img class="b-thumb" src="<?= htmlspecialchars($b['gambar']) ?>"></td>
-              <td><?= htmlspecialchars($b['judul']) ?></td>
-              <td><?= $b['urutan'] ?></td>
-              <td><span class="pill pill-<?= $b['is_active'] ? 'aktif' : 'nonaktif' ?>"><?= $b['is_active'] ? 'Tampil' : 'Disembunyikan' ?></span></td>
+              <td><span class="kode-badge"><?= htmlspecialchars($v['kode']) ?></span></td>
+              <td><?= ucfirst($v['tipe']) ?></td>
+              <td><?= $v['tipe']=='persen' ? $v['nilai'].'%' : ($v['tipe']=='ongkir' ? '-' : fmt($v['nilai'])) ?></td>
+              <td><?= $v['terpakai'] ?>/<?= $v['kuota'] ?? '∞' ?></td>
+              <td><?= $v['berlaku_sampai'] ? date('d M Y', strtotime($v['berlaku_sampai'])) : '-' ?></td>
+              <td><span class="pill pill-<?= $v['is_active'] ? 'aktif' : 'nonaktif' ?>"><?= $v['is_active'] ? 'Aktif' : 'Nonaktif' ?></span></td>
               <td>
-                <a href="?edit=<?= $b['id'] ?>" class="act-edit">Edit</a>
-                <form method="POST" style="display:inline" onsubmit="return confirm('Hapus banner ini?')">
-                  <input type="hidden" name="id" value="<?= $b['id'] ?>">
+                <a href="?edit=<?= $v['id'] ?>" class="act-edit">Edit</a>
+                <form method="POST" style="display:inline" onsubmit="return confirm('Hapus voucher ini?')">
+                  <input type="hidden" name="id" value="<?= $v['id'] ?>">
                   <button type="submit" name="hapus" class="act-hapus">Hapus</button>
                 </form>
               </td>
@@ -192,6 +207,8 @@ tr:last-child td{border-bottom:none}
           </tbody>
         </table>
       </div>
+    </div>
   </div>
+</div>
 </body>
 </html>

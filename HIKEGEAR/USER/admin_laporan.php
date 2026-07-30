@@ -4,58 +4,34 @@ require_once __DIR__.'/db.php';
 require_once __DIR__.'/helpers.php';
 require_once __DIR__.'/auth_guard.php';
 require_once __DIR__.'/admin_guard.php';
-require_once __DIR__.'/admin_actifity.php';
 
-$flash = '';
-$errors = [];
+$dari = $_GET['dari'] ?? date('Y-m-01');
+$sampai = $_GET['sampai'] ?? date('Y-m-d');
 
-if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['hapus'])) {
-    $id = (int)$_POST['id'];
-    $pdo->prepare("DELETE FROM banner WHERE id=?")->execute([$id]);
-    catat_log($pdo, (int)$_SESSION['user_id'], 'Hapus banner', "ID: $id");
-    $flash = 'Banner berhasil dihapus.';
-}
+$stmt = $pdo->prepare("SELECT COUNT(*) AS jml, COALESCE(SUM(total),0) AS pendapatan
+                        FROM pesanan WHERE created_at BETWEEN ? AND ? AND status != 'dibatalkan'");
+$stmt->execute([$dari.' 00:00:00', $sampai.' 23:59:59']);
+$ringkasan = $stmt->fetch();
 
-if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['simpan'])) {
-    $id = (int)($_POST['id'] ?? 0);
-    $judul = trim($_POST['judul'] ?? '');
-    $gambar = trim($_POST['gambar'] ?? '');
-    $link_tujuan = trim($_POST['link_tujuan'] ?? '') ?: null;
-    $urutan = (int)($_POST['urutan'] ?? 0);
-    $is_active = isset($_POST['is_active']) ? 1 : 0;
+$stmt2 = $pdo->prepare("SELECT DATE(created_at) AS tgl, COUNT(*) AS jml, SUM(total) AS total
+                         FROM pesanan WHERE created_at BETWEEN ? AND ? AND status != 'dibatalkan'
+                         GROUP BY DATE(created_at) ORDER BY tgl DESC");
+$stmt2->execute([$dari.' 00:00:00', $sampai.' 23:59:59']);
+$per_hari = $stmt2->fetchAll();
 
-    if (!$judul) $errors[] = 'Judul banner wajib diisi.';
-    if (!$gambar) $errors[] = 'URL gambar wajib diisi.';
-
-    if (empty($errors)) {
-        if ($id) {
-            $pdo->prepare("UPDATE banner SET judul=?, gambar=?, link_tujuan=?, urutan=?, is_active=? WHERE id=?")
-                ->execute([$judul, $gambar, $link_tujuan, $urutan, $is_active, $id]);
-            $flash = 'Banner berhasil diperbarui.';
-        } else {
-            $pdo->prepare("INSERT INTO banner (judul, gambar, link_tujuan, urutan, is_active) VALUES (?,?,?,?,?)")
-                ->execute([$judul, $gambar, $link_tujuan, $urutan, $is_active]);
-            $flash = 'Banner baru berhasil ditambahkan.';
-        }
-        catat_log($pdo, (int)$_SESSION['user_id'], 'Simpan banner', $judul);
-    }
-}
-
-$edit = null;
-if (isset($_GET['edit'])) {
-    $stmt = $pdo->prepare("SELECT * FROM banner WHERE id=?");
-    $stmt->execute([(int)$_GET['edit']]);
-    $edit = $stmt->fetch();
-}
-
-$daftar = $pdo->query("SELECT * FROM banner ORDER BY urutan, id DESC")->fetchAll();
+$stmt3 = $pdo->prepare("SELECT pd.nama_produk, SUM(pd.qty) AS total_qty, SUM(pd.subtotal) AS total_omzet
+                         FROM pesanan_detail pd JOIN pesanan p ON pd.pesanan_id=p.id
+                         WHERE p.created_at BETWEEN ? AND ? AND p.status != 'dibatalkan'
+                         GROUP BY pd.nama_produk ORDER BY total_qty DESC LIMIT 10");
+$stmt3->execute([$dari.' 00:00:00', $sampai.' 23:59:59']);
+$produk_terlaris = $stmt3->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kelola Banner - HikeGear Admin</title>
+<title>Laporan - HikeGear Admin</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -112,14 +88,15 @@ tr:last-child td{border-bottom:none}
 .act-edit{background:#d6ecff;color:var(--blue);padding:5px 10px;border-radius:6px;font-size:11px;font-weight:700}
 .act-hapus{background:#fdecea;color:var(--red);padding:5px 10px;border-radius:6px;font-size:11px;font-weight:700;border:none;cursor:pointer}
 
-.grid-2{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start}
-@media(max-width:900px){.grid-2{grid-template-columns:1fr}}
-.card{background:white;border-radius:var(--radius);box-shadow:0 1px 3px rgba(0,0,0,.06);padding:18px}
-.form-group{margin-bottom:12px}
-.form-group label{display:block;font-size:12px;font-weight:700;margin-bottom:5px}
-.form-group input{width:100%;padding:9px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit}
-.chk-row{display:flex;align-items:center;gap:8px;margin-bottom:14px}
-.b-thumb{width:80px;height:44px;border-radius:6px;object-fit:cover;background:var(--gray-100)}
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:22px}
+.stat-card{background:white;border-radius:var(--radius);padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.stat-card .lbl{font-size:12px;color:var(--gray-600);font-weight:600;margin-bottom:6px}
+.stat-card .val{font-size:26px;font-weight:800;color:var(--green-dark)}
+.filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:18px;background:white;padding:14px 16px;border-radius:var(--radius);box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.filter-bar input{padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:7px;font-size:12.5px}
+.filter-bar button{padding:8px 16px;background:var(--green);color:white;border:none;border-radius:7px;font-weight:700;cursor:pointer;font-size:12.5px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:900px){.two-col{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -132,12 +109,12 @@ tr:last-child td{border-bottom:none}
     <a href="admin_produk.php" class="nav-link"><span class="ic">🛒</span>Produk</a>
     <a href="admin_kategori.php" class="nav-link"><span class="ic">🗂️</span>Kategori</a>
     <a href="admin_pelanggan.php" class="nav-link"><span class="ic">👥</span>Pelanggan</a>
-    <a href="admin_laporan.php" class="nav-link"><span class="ic">📈</span>Laporan</a>
+    <a href="admin_laporan.php" class="nav-link active"><span class="ic">📈</span>Laporan</a>
     <a href="admin_pengaturan.php" class="nav-link"><span class="ic">⚙️</span>Pengaturan</a>
     <div class="menu-label">Lainnya</div>
     <a href="admin_ulasan.php" class="nav-link"><span class="ic">⭐</span>Ulasan</a>
     <a href="admin_promo.php" class="nav-link"><span class="ic">🏷️</span>Promo</a>
-    <a href="admin_banner.php" class="nav-link active"><span class="ic">🖼️</span>Banner</a>
+    <a href="admin_banner.php" class="nav-link"><span class="ic">🖼️</span>Banner</a>
     <a href="admin_pengguna.php" class="nav-link"><span class="ic">👤</span>Pengguna</a>
     <a href="admin_log.php" class="nav-link"><span class="ic">📜</span>Log Aktivitas</a>
     <div style="margin-top:auto"></div>
@@ -148,50 +125,50 @@ tr:last-child td{border-bottom:none}
     <div class="topbar">
       <div class="who"><strong><?= htmlspecialchars($_SESSION['nama']) ?></strong><span>Super Admin</span></div>
       <div class="avatar"><?= strtoupper(substr($_SESSION['nama'],0,1)) ?></div>
+    </div>
 
     <div class="content">
-      <h1>🖼️ Kelola Banner</h1>
-      <?php if ($flash): ?><div class="flash"><?= htmlspecialchars($flash) ?></div><?php endif; ?>
-      <?php if ($errors): ?><div class="error-box"><?php foreach($errors as $e): ?><div><?= htmlspecialchars($e) ?></div><?php endforeach; ?></div><?php endif; ?>
+      <h1>📈 Laporan Penjualan</h1>
+      <div class="sub">Ringkasan performa toko HikeGear</div>
 
-      <div class="grid-2">
-        <div class="card">
-          <h3 style="margin-bottom:14px;color:var(--green-dark)"><?= $edit ? 'Edit Banner' : 'Tambah Banner' ?></h3>
-          <form method="POST">
-            <?php if ($edit): ?><input type="hidden" name="id" value="<?= $edit['id'] ?>"><?php endif; ?>
-            <div class="form-group"><label>Judul Banner *</label><input type="text" name="judul" value="<?= htmlspecialchars($edit['judul'] ?? '') ?>" required></div>
-            <div class="form-group"><label>URL Gambar *</label><input type="text" name="gambar" value="<?= htmlspecialchars($edit['gambar'] ?? '') ?>" placeholder="https://..." required></div>
-            <div class="form-group"><label>Link Tujuan (opsional)</label><input type="text" name="link_tujuan" value="<?= htmlspecialchars($edit['link_tujuan'] ?? '') ?>" placeholder="produk.php?kategori=..."></div>
-            <div class="form-group"><label>Urutan</label><input type="number" name="urutan" value="<?= $edit['urutan'] ?? 0 ?>"></div>
-            <div class="chk-row"><input type="checkbox" name="is_active" id="ia" <?= (!isset($edit) || $edit['is_active']) ? 'checked' : '' ?>><label for="ia" style="margin:0">Tampilkan</label></div>
-            <button type="submit" name="simpan" class="btn btn-primary"><?= $edit ? 'Simpan Perubahan' : 'Tambah Banner' ?></button>
-            <?php if ($edit): ?><a href="admin_banner.php" class="btn btn-secondary">Batal</a><?php endif; ?>
-          </form>
-        </div>
+      <form class="filter-bar" method="GET">
+        <label style="font-size:12px;font-weight:600">Dari:</label>
+        <input type="date" name="dari" value="<?= htmlspecialchars($dari) ?>">
+        <label style="font-size:12px;font-weight:600">Sampai:</label>
+        <input type="date" name="sampai" value="<?= htmlspecialchars($sampai) ?>">
+        <button type="submit">Terapkan</button>
+      </form>
+
+      <div class="stat-grid">
+        <div class="stat-card"><div class="lbl">Jumlah Transaksi</div><div class="val"><?= $ringkasan['jml'] ?></div></div>
+        <div class="stat-card"><div class="lbl">Total Pendapatan</div><div class="val"><?= fmt($ringkasan['pendapatan']) ?></div></div>
+      </div>
+
+      <div class="two-col">
+        <table>
+          <thead><tr><th>Tanggal</th><th>Jml Transaksi</th><th>Total</th></tr></thead>
+          <tbody>
+            <?php if (empty($per_hari)): ?>
+            <tr><td colspan="3" style="text-align:center;padding:20px;color:var(--gray-600)">Tidak ada data.</td></tr>
+            <?php else: foreach ($per_hari as $r): ?>
+            <tr><td><?= date('d M Y', strtotime($r['tgl'])) ?></td><td><?= $r['jml'] ?></td><td><?= fmt($r['total']) ?></td></tr>
+            <?php endforeach; endif; ?>
+          </tbody>
+        </table>
 
         <table>
-          <thead><tr><th>Preview</th><th>Judul</th><th>Urutan</th><th>Status</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Produk Terlaris</th><th>Terjual</th><th>Omzet</th></tr></thead>
           <tbody>
-            <?php if (empty($daftar)): ?>
-            <tr><td colspan="5" style="text-align:center;padding:20px;color:var(--gray-600)">Belum ada banner.</td></tr>
-            <?php else: foreach ($daftar as $b): ?>
-            <tr>
-              <td><img class="b-thumb" src="<?= htmlspecialchars($b['gambar']) ?>"></td>
-              <td><?= htmlspecialchars($b['judul']) ?></td>
-              <td><?= $b['urutan'] ?></td>
-              <td><span class="pill pill-<?= $b['is_active'] ? 'aktif' : 'nonaktif' ?>"><?= $b['is_active'] ? 'Tampil' : 'Disembunyikan' ?></span></td>
-              <td>
-                <a href="?edit=<?= $b['id'] ?>" class="act-edit">Edit</a>
-                <form method="POST" style="display:inline" onsubmit="return confirm('Hapus banner ini?')">
-                  <input type="hidden" name="id" value="<?= $b['id'] ?>">
-                  <button type="submit" name="hapus" class="act-hapus">Hapus</button>
-                </form>
-              </td>
-            </tr>
+            <?php if (empty($produk_terlaris)): ?>
+            <tr><td colspan="3" style="text-align:center;padding:20px;color:var(--gray-600)">Tidak ada data.</td></tr>
+            <?php else: foreach ($produk_terlaris as $r): ?>
+            <tr><td><?= htmlspecialchars($r['nama_produk']) ?></td><td><?= $r['total_qty'] ?></td><td><?= fmt($r['total_omzet']) ?></td></tr>
             <?php endforeach; endif; ?>
           </tbody>
         </table>
       </div>
+    </div>
   </div>
+</div>
 </body>
 </html>
